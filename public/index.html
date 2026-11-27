@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Regalo Grupal - Participante</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 20px auto; padding: 0 16px; background: #f5f5f5; color: #222; }
+    .card { background: #fff; padding: 16px; border-radius: 8px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    .oculto { display: none; }
+    .fila { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    input { padding: 8px; font-size: 14px; border: 1px solid #ccc; border-radius: 4px; }
+    button { padding: 8px 12px; font-size: 14px; cursor: pointer; border: none; border-radius: 4px; background: #2563eb; color: #fff; }
+    button:hover { background: #1d4ed8; }
+    button.secundario { background: #64748b; }
+    button.peligro { background: #dc2626; }
+    .error { background: #fee2e2; color: #991b1b; padding: 10px; border-radius: 4px; margin-top: 8px; }
+    .info { background: #dbeafe; color: #1e40af; padding: 10px; border-radius: 4px; margin-top: 8px; }
+    .producto { display: flex; gap: 16px; align-items: center; border-bottom: 1px solid #eee; padding: 12px 0; }
+    .producto:last-child { border-bottom: none; }
+    .producto img { width: 72px; height: 72px; object-fit: cover; border-radius: 6px; background: #eee; }
+    .producto-info { flex: 1; }
+    .votos { font-size: 18px; font-weight: bold; min-width: 70px; text-align: center; }
+    .badge { display: inline-block; background: #e2e8f0; padding: 3px 8px; border-radius: 12px; font-size: 13px; margin: 2px; }
+  </style>
+</head>
+<body>
+  <h1>Lista de Regalo Grupal</h1>
+
+  <!-- Ingreso -->
+  <div id="seccion-ingreso" class="card">
+    <h2>Ingresar a la sala</h2>
+    <div class="fila">
+      <input id="input-nombre" type="text" placeholder="Tu nombre (2 a 20 caracteres)" maxlength="20" />
+      <button id="btn-unirse">Entrar</button>
+    </div>
+    <div id="mensajes-ingreso"></div>
+  </div>
+
+  <!-- Sala principal -->
+  <div id="seccion-sala" class="oculto">
+    <div class="card">
+      <div class="fila" style="justify-content: space-between;">
+        <div>Conectado como: <strong id="mi-nombre"></strong></div>
+        <a href="/pantalla.html" target="_blank">Abrir Pantalla (SSE)</a>
+      </div>
+      <div style="margin-top: 10px;">
+        <strong>Participantes conectados (<span id="cantidad-participantes">0</span>):</strong>
+        <div id="lista-participantes" style="margin-top: 6px;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Proponer productos (IDs de DummyJSON)</h2>
+      <div class="fila">
+        <input id="input-ids" type="text" placeholder="Ej: 1, 2, 15, 9999" style="flex: 1;" />
+        <button id="btn-proponer">Proponer</button>
+      </div>
+      <small>Ingresá entre 1 y 10 IDs numéricos separados por coma.</small>
+      <div id="mensajes-sala"></div>
+    </div>
+
+    <div class="card">
+      <h2>Ranking de productos</h2>
+      <div id="lista-productos">Todavía no hay productos propuestos.</div>
+    </div>
+  </div>
+
+  <script>
+    const protocolo = location.protocol === 'https:' ? 'wss' : 'ws';
+    const ws = new WebSocket(`${protocolo}://${location.host}`);
+    // Expuesto en window para facilitar pruebas desde la consola del navegador
+    window.ws = ws;
+
+    let miNombre = null;
+
+    const seccionIngreso = document.getElementById('seccion-ingreso');
+    const seccionSala = document.getElementById('seccion-sala');
+    const inputNombre = document.getElementById('input-nombre');
+    const btnUnirse = document.getElementById('btn-unirse');
+    const mensajesIngreso = document.getElementById('mensajes-ingreso');
+
+    const spanMiNombre = document.getElementById('mi-nombre');
+    const spanCantParticipantes = document.getElementById('cantidad-participantes');
+    const divParticipantes = document.getElementById('lista-participantes');
+    const inputIds = document.getElementById('input-ids');
+    const btnProponer = document.getElementById('btn-proponer');
+    const mensajesSala = document.getElementById('mensajes-sala');
+    const divProductos = document.getElementById('lista-productos');
+
+    function enviar(obj) {
+      ws.send(JSON.stringify(obj));
+    }
+
+    function mostrarMensaje(contenedor, texto, tipo = 'info') {
+      const div = document.createElement('div');
+      div.className = tipo;
+      div.textContent = texto;
+      contenedor.innerHTML = '';
+      contenedor.appendChild(div);
+    }
+
+    function renderParticipantes(lista) {
+      spanCantParticipantes.textContent = lista.length;
+      divParticipantes.innerHTML = lista
+        .map((n) => `<span class="badge">${n === miNombre ? n + ' (vos)' : n}</span>`)
+        .join('');
+    }
+
+    function renderProductos(productos) {
+      if (productos.length === 0) {
+        divProductos.innerHTML = '<p>Todavía no hay productos propuestos.</p>';
+        return;
+      }
+
+      divProductos.innerHTML = '';
+      for (const p of productos) {
+        const yaVote = p.votos.includes(miNombre);
+        const esMio = p.propuestoPor === miNombre;
+
+        const item = document.createElement('div');
+        item.className = 'producto';
+        item.innerHTML = `
+          <img src="${p.imagen}" alt="${p.titulo}" />
+          <div class="producto-info">
+            <div><strong>#${p.id} - ${p.titulo}</strong></div>
+            <div>Precio: $${p.precio} | Propuesto por: ${p.propuestoPor}</div>
+            <small>Votos de: ${p.votos.length > 0 ? p.votos.join(', ') : 'nadie'}</small>
+          </div>
+          <div class="votos">${p.cantidadVotos} 👍</div>
+          <div class="fila">
+            <button class="${yaVote ? 'secundario' : ''}" data-accion="${yaVote ? 'quitar_voto' : 'votar'}" data-id="${p.id}">
+              ${yaVote ? 'Quitar voto' : 'Votar'}
+            </button>
+            ${esMio ? `<button class="peligro" data-accion="quitar_producto" data-id="${p.id}">Quitar</button>` : ''}
+          </div>
+        `;
+        divProductos.appendChild(item);
+      }
+    }
+
+    btnUnirse.addEventListener('click', () => {
+      enviar({ tipo: 'unirse', nombre: inputNombre.value });
+    });
+
+    inputNombre.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') btnUnirse.click();
+    });
+
+    btnProponer.addEventListener('click', () => {
+      const partes = inputIds.value
+        .split(',')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0)
+        .map(Number);
+
+      mostrarMensaje(mensajesSala, 'Consultando catálogo...', 'info');
+      enviar({ tipo: 'proponer', productoIds: partes });
+      inputIds.value = '';
+    });
+
+    divProductos.addEventListener('click', (e) => {
+      const btn = e.target.closest('button');
+      if (!btn) return;
+      const accion = btn.dataset.accion;
+      const productoId = Number(btn.dataset.id);
+      enviar({ tipo: accion, productoId });
+    });
+
+    ws.addEventListener('message', (event) => {
+      const msg = JSON.parse(event.data);
+      console.log('WS recibido:', msg);
+
+      switch (msg.tipo) {
+        case 'estado_inicial':
+          miNombre = msg.tuNombre;
+          spanMiNombre.textContent = miNombre;
+          seccionIngreso.classList.add('oculto');
+          seccionSala.classList.remove('oculto');
+          renderParticipantes(msg.participantes);
+          renderProductos(msg.productos);
+          break;
+
+        case 'participantes_actualizados':
+          renderParticipantes(msg.participantes);
+          break;
+
+        case 'lista_actualizada':
+          renderProductos(msg.productos);
+          break;
+
+        case 'resultado_propuesta': {
+          const lineas = [];
+          if (msg.agregados.length > 0) {
+            lineas.push(`Agregados: ${msg.agregados.join(', ')}`);
+          }
+          if (msg.fallos.length > 0) {
+            for (const f of msg.fallos) {
+              lineas.push(`ID ${f.productoId} [${f.motivo}]: ${f.detalle}`);
+            }
+          }
+          const div = document.createElement('div');
+          div.className = msg.fallos.length > 0 ? 'error' : 'info';
+          div.innerHTML = lineas.map((l) => `<div>${l}</div>`).join('');
+          mensajesSala.innerHTML = '';
+          mensajesSala.appendChild(div);
+          break;
+        }
+
+        case 'error':
+          mostrarMensaje(miNombre ? mensajesSala : mensajesIngreso, `Error: ${msg.mensaje}`, 'error');
+          break;
+      }
+    });
+
+    ws.addEventListener('close', () => {
+      mostrarMensaje(miNombre ? mensajesSala : mensajesIngreso, 'Conexión cerrada con el servidor.', 'error');
+    });
+  </script>
+</body>
+</html>

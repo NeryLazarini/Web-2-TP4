@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Regalo Grupal - Pantalla en Vivo</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 24px; background: #0f172a; color: #f8fafc; }
+    header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #334155; padding-bottom: 16px; margin-bottom: 24px; }
+    .contador { background: #2563eb; padding: 10px 18px; border-radius: 999px; font-size: 20px; font-weight: bold; }
+    .item { display: flex; align-items: center; gap: 20px; background: #1e293b; padding: 16px; border-radius: 10px; margin-bottom: 14px; }
+    .posicion { font-size: 28px; font-weight: bold; color: #38bdf8; min-width: 48px; text-align: center; }
+    .item img { width: 84px; height: 84px; object-fit: cover; border-radius: 8px; background: #334155; }
+    .detalle { flex: 1; }
+    .titulo { font-size: 22px; font-weight: bold; }
+    .precio { font-size: 18px; color: #94a3b8; margin-top: 4px; }
+    .votos { font-size: 28px; font-weight: bold; background: #0f172a; padding: 12px 20px; border-radius: 8px; }
+    .estado { font-size: 13px; color: #94a3b8; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1 style="margin: 0;">Ranking en Vivo — Regalo Grupal</h1>
+      <div id="estado-conexion" class="estado">Conectando por SSE...</div>
+    </div>
+    <div class="contador">Participantes: <span id="cantidad">0</span></div>
+  </header>
+
+  <main id="ranking">Esperando productos...</main>
+
+  <script>
+    const spanCantidad = document.getElementById('cantidad');
+    const divRanking = document.getElementById('ranking');
+    const divEstado = document.getElementById('estado-conexion');
+
+    const source = new EventSource('/events');
+
+    source.addEventListener('open', () => {
+      divEstado.textContent = 'Conectado en tiempo real (SSE)';
+    });
+
+    source.addEventListener('error', () => {
+      divEstado.textContent = 'Reconectando con el servidor...';
+    });
+
+    source.addEventListener('estado', (event) => {
+      const data = JSON.parse(event.data);
+      spanCantidad.textContent = data.cantidadParticipantes;
+
+      if (data.productos.length === 0) {
+        divRanking.innerHTML = '<p>Todavía no hay productos en la lista.</p>';
+        return;
+      }
+
+      divRanking.innerHTML = data.productos
+        .map(
+          (p, i) => `
+          <div class="item">
+            <div class="posicion">#${i + 1}</div>
+            <img src="${p.imagen}" alt="${p.titulo}" />
+            <div class="detalle">
+              <div class="titulo">${p.titulo}</div>
+              <div class="precio">$${p.precio} · Propuesto por ${p.propuestoPor}</div>
+            </div>
+            <div class="votos">${p.cantidadVotos} 👍</div>
+          </div>
+        `
+        )
+        .join('');
+    });
+  </script>
+</body>
+</html>
